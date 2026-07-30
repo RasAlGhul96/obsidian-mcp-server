@@ -109,12 +109,14 @@ export class PathGuard {
       );
     }
 
-    // 2. Prohibir rutas absolutas del cliente (POSIX, unidad Windows, UNC).
-    if (
-      path.isAbsolute(relativeInput) ||
-      /^[a-zA-Z]:[\\/]/.test(relativeInput) ||
-      /^[\\/]{2}/.test(relativeInput)
-    ) {
+    // 1c. Normalizar separadores: tratar '\' como '/' en TODAS las plataformas.
+    //     Asi un traversal estilo Windows (..\..\) se detecta identico en
+    //     Linux/macOS (donde '\' no es separador) y en Windows. Comportamiento
+    //     determinista, imprescindible en una herramienta de seguridad.
+    const normalized = relativeInput.replace(/\\/g, "/");
+
+    // 2. Prohibir rutas absolutas del cliente (POSIX y UNC).
+    if (path.isAbsolute(normalized) || normalized.startsWith("//")) {
       throw new PathSecurityError(
         "ABSOLUTE_INPUT",
         "Solo se permiten rutas relativas a la boveda.",
@@ -122,7 +124,7 @@ export class PathGuard {
     }
 
     // 3. Resolver contra la raiz de la boveda.
-    const resolved = path.resolve(this.vaultRoot, relativeInput);
+    const resolved = path.resolve(this.vaultRoot, normalized);
 
     // 4. Contencion lexica.
     if (!this.isContained(resolved)) {
