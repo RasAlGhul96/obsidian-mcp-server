@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Entorno / secretos
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# SO / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Config local de herramientas (contiene rutas personales)
+.claude/settings.local.json
+
+# Cobertura de tests
+coverage/

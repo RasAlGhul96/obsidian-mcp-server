@@ -1,0 +1,43 @@
+{
+  "name": "obsidian-mcp-server",
+  "version": "0.1.0",
+  "description": "Servidor MCP de solo lectura con sandboxing Zero Trust para una boveda local de Obsidian.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "obsidian",
+    "claude",
+    "zero-trust",
+    "security",
+    "read-only"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "obsidian-mcp-server": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node --test \"build/tests/**/*.test.js\"",
+    "test:security": "node --test build/tests/security.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
