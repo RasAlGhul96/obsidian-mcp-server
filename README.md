@@ -1,16 +1,23 @@
-# Obsidian MCP Server (Zero Trust · Solo lectura)
+# Obsidian MCP Server (Zero Trust)
 
 Servidor MCP en TypeScript que conecta Claude Desktop con una boveda local de Obsidian
-bajo un modelo de **Confianza Cero**. Todas las herramientas de esta fase inicial son
-**estrictamente de solo lectura**.
+bajo un modelo de **Confianza Cero**. Es **solo lectura por defecto**; la escritura es
+**opt-in** mediante `OBSIDIAN_ENABLE_WRITE=true` y pasa por el mismo sandbox.
 
 ## Herramientas expuestas
 
-| Herramienta    | Tipo        | Descripcion                                          |
-|----------------|-------------|------------------------------------------------------|
-| `read_note`    | solo lectura | Lee el contenido de una nota `.md` de la boveda.     |
-| `list_notes`   | solo lectura | Lista las notas de la boveda (o de una subcarpeta).  |
-| `search_vault` | solo lectura | Busca texto dentro de las notas de la boveda.        |
+| Herramienta    | Tipo         | Descripcion                                          |
+|----------------|--------------|------------------------------------------------------|
+| `read_note`    | lectura      | Lee el contenido de una nota `.md` de la boveda.     |
+| `list_notes`   | lectura      | Lista las notas de la boveda (o de una subcarpeta).  |
+| `search_vault` | lectura      | Busca texto dentro de las notas de la boveda.        |
+| `create_note`  | escritura *  | Crea una nota `.md` nueva. Falla si ya existe.       |
+| `update_note`  | escritura *  | Sobrescribe una nota existente (escritura atomica).  |
+| `append_note`  | escritura *  | Anade texto al final de una nota existente.          |
+| `delete_note`  | escritura *  | Mueve una nota a la papelera `.trash` (reversible).  |
+
+\* Las herramientas de escritura solo se registran si `OBSIDIAN_ENABLE_WRITE=true`.
+Por defecto el servidor es **solo lectura**.
 
 ## Modelo de seguridad (Zero Trust)
 

@@ -5,6 +5,14 @@ export interface ServerConfig {
   /** Ruta absoluta y canonica (realpath) a la raiz de la boveda. */
   readonly vaultRoot: string;
   readonly logLevel: string;
+  /** Escritura habilitada solo si OBSIDIAN_ENABLE_WRITE es true/1/yes. Por defecto false (solo lectura). */
+  readonly enableWrite: boolean;
+}
+
+/** Interpreta un valor de entorno booleano de forma permisiva. */
+function parseBool(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 /**
@@ -49,6 +57,7 @@ export function loadConfig(): ServerConfig {
   }
 
   const logLevel = process.env.LOG_LEVEL?.trim() || "info";
+  const enableWrite = parseBool(process.env.OBSIDIAN_ENABLE_WRITE);
 
-  return { vaultRoot, logLevel };
+  return { vaultRoot, logLevel, enableWrite };
 }

@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>obsidian-mcp-server · Arquitectura</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-2: #1d2740;
+    --line: #2a3550;
+    --text: #e6ecf7;
+    --muted: #93a1c0;
+    --accent: #6ea8ff;
+    --edge: #3c496b;
+    --edge-hi: #6ea8ff;
+    --dim: 0.12;
+    --external: #64748b;
+    --transport: #f59e0b;
+    --sdk: #22d3ee;
+    --entrypoint: #818cf8;
+    --config: #2dd4bf;
+    --tool: #4f9dff;
+    --write: #fb923c;
+    --util: #a78bfa;
+    --security: #fb5c6b;
+    --shadow: 0 6px 22px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fb; --panel: #ffffff; --panel-2: #f7f9fe; --line: #e2e8f4;
+      --text: #16203a; --muted: #5a6b8c; --edge: #c4cee4; --edge-hi: #2f6fed;
+      --accent: #2f6fed; --shadow: 0 6px 22px rgba(20,40,90,.10);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 16px 22px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    background: var(--panel);
+  }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .legend { margin-left: auto; display: flex; gap: 12px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .layout { display: flex; height: calc(100vh - 61px); }
+  @media (max-width: 860px) { .layout { flex-direction: column; height: auto; } }
+  .stage {
+    flex: 1 1 auto; min-width: 0; position: relative; overflow: auto;
+    background:
+      radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 26px 26px;
+  }
+  svg { width: 100%; height: 100%; min-height: 640px; display: block; }
+  @media (max-width: 860px) { svg { min-height: 720px; } }
+
+  .node rect {
+    fill: var(--panel); stroke: var(--n, var(--line)); stroke-width: 1.6;
+    rx: 11; filter: drop-shadow(0 3px 8px rgba(0,0,0,.18));
+    transition: opacity .18s ease;
+  }
+  .node .accentbar { fill: var(--n, var(--accent)); }
+  .node .title { fill: var(--text); font-weight: 650; font-size: 13px; }
+  .node .kind { fill: var(--muted); font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; }
+  .node { cursor: pointer; transition: opacity .18s ease; }
+  .node:hover rect { stroke-width: 2.4; }
+
+  .edge { fill: none; stroke: var(--edge); stroke-width: 1.6; transition: opacity .18s ease, stroke .18s ease; }
+  .edge.build { stroke-dasharray: 5 5; }
+  .edgelabel { fill: var(--muted); font-size: 10px; opacity: 0; transition: opacity .18s; }
+
+  /* highlight state */
+  svg.has-active .node { opacity: var(--dim); }
+  svg.has-active .edge { opacity: var(--dim); }
+  svg.has-active .node.hi { opacity: 1; }
+  svg.has-active .edge.hi { opacity: 1; stroke: var(--edge-hi); stroke-width: 2.4; }
+  svg.has-active .edge.hi.build { stroke-dasharray: 5 5; }
+  .node.hi rect { stroke-width: 2.6; }
+  .edge.hi + .edgelabel, .edgelabel.hi { opacity: 1; }
+
+  aside {
+    width: 340px; flex: 0 0 340px; border-left: 1px solid var(--line);
+    background: var(--panel); overflow-y: auto; padding: 18px;
+  }
+  @media (max-width: 860px) { aside { width: 100%; flex-basis: auto; border-left: none; border-top: 1px solid var(--line); } }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 4px 0 12px; }
+  .flow {
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+    cursor: pointer; background: var(--panel-2); transition: border-color .15s, transform .05s;
+  }
+  .flow:hover { border-color: var(--accent); }
+  .flow.active { border-color: var(--edge-hi); box-shadow: var(--shadow); }
+  .flow .name { font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .flow .name .swatch { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .flow .desc { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+  .steps { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; display: none; }
+  .flow.active .steps { display: block; }
+  .step { display: flex; gap: 10px; padding: 5px 0; align-items: flex-start; }
+  .step .num {
+    flex: 0 0 20px; height: 20px; border-radius: 50%; background: var(--edge-hi); color: #fff;
+    font-size: 11px; font-weight: 700; display: grid; place-items: center; margin-top: 1px;
+  }
+  .step .txt { font-size: 12.5px; }
+  .step .txt b { color: var(--text); }
+  .step .txt span { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+  #tooltip {
+    position: fixed; z-index: 20; pointer-events: none; max-width: 300px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow);
+    font-size: 12.5px; opacity: 0; transition: opacity .12s; transform: translateY(-4px);
+  }
+  #tooltip.show { opacity: 1; }
+  #tooltip .tt-title { font-weight: 700; margin-bottom: 3px; }
+  #tooltip .tt-file { color: var(--accent); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; margin-bottom: 5px; }
+  #tooltip .tt-desc { color: var(--muted); }
+  .reset { font-size: 12px; color: var(--accent); cursor: pointer; background: none; border: none; padding: 0; margin-left: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>obsidian-mcp-server</h1>
+  <span class="sub">Arquitectura · Zero Trust · lectura + escritura (opt-in)</span>
+  <div class="legend" id="legend"></div>
+</header>
+
+<div class="layout">
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1000 810" preserveAspectRatio="xMidYMin meet" aria-label="Diagrama de arquitectura">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--edge)"></path>
+        </marker>
+        <marker id="arrowhi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--edge-hi)"></path>
+        </marker>
+      </defs>
+      <g id="gEdges"></g>
+      <g id="gLabels"></g>
+      <g id="gNodes"></g>
+    </svg>
+  </div>
+
+  <aside>
+    <h2 style="display:flex;align-items:center">Flujos <button class="reset" id="reset" hidden>limpiar ✕</button></h2>
+    <div id="flows"></div>
+    <div class="hint">Pulsa un flujo para resaltar su ruta completa en el diagrama. Pasa el cursor sobre un componente para ver su descripción.</div>
+  </aside>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+const DATA = {
+  "nodes": [
+    { "id": "client", "label": "Cliente MCP", "type": "external", "file": null, "position": { "x": 500, "y": 48 }, "description": "Claude Desktop u otro cliente MCP. Envia peticiones JSON-RPC 2.0 a traves de stdio." },
+    { "id": "transport", "label": "StdioServerTransport", "type": "transport", "file": "src/index.ts", "position": { "x": 350, "y": 142 }, "description": "Transporte stdio: stdin recibe peticiones, stdout emite respuestas. Los logs van a stderr para no corromper el canal del protocolo." },
+    { "id": "sdk", "label": "McpServer (SDK)", "type": "sdk", "file": "src/index.ts", "position": { "x": 650, "y": 142 }, "description": "@modelcontextprotocol/sdk. Registra las herramientas y despacha las llamadas entrantes al handler correspondiente." },
+    { "id": "index", "label": "index.ts", "type": "entrypoint", "file": "src/index.ts", "position": { "x": 500, "y": 240 }, "description": "Entrypoint main(): carga config (fail-fast), construye el guardian, registra las 3 herramientas de lectura y (si enableWrite) las 4 de escritura, y conecta el transporte." },
+    { "id": "env", "label": "config/env.ts", "type": "config", "file": "src/config/env.ts", "position": { "x": 165, "y": 240 }, "description": "loadConfig(): valida OBSIDIAN_VAULT_PATH (absoluta, existe, es dir) con realpath. Lee OBSIDIAN_ENABLE_WRITE (opt-in). Fail-fast." },
+    { "id": "readNote", "label": "read_note", "type": "tool", "file": "src/tools/readNote.ts", "position": { "x": 165, "y": 360 }, "description": "Lee el contenido de una nota .md. Valida con el guardian y comprueba isFile()." },
+    { "id": "listNotes", "label": "list_notes", "type": "tool", "file": "src/tools/listNotes.ts", "position": { "x": 165, "y": 452 }, "description": "Enumera notas .md recursivamente, opcionalmente por subcarpeta." },
+    { "id": "searchVault", "label": "search_vault", "type": "tool", "file": "src/tools/searchVault.ts", "position": { "x": 165, "y": 544 }, "description": "Busca texto (case-insensitive) en las notas. Omite ficheros mayores de 5 MB (defensa OOM)." },
+    { "id": "createNote", "label": "create_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 360 }, "description": "Crea una nota .md nueva (flag wx: falla si ya existe, nunca sobrescribe). Solo si enableWrite." },
+    { "id": "updateNote", "label": "update_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 452 }, "description": "Sobrescribe una nota existente con escritura atomica (temp + rename). Falla si no existe." },
+    { "id": "appendNote", "label": "append_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 544 }, "description": "Anade texto al final de una nota existente sin tocar lo previo. Falla si no existe." },
+    { "id": "deleteNote", "label": "delete_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 636 }, "description": "Mueve la nota a la papelera .trash (reversible, no es borrado permanente)." },
+    { "id": "walker", "label": "vaultWalker.ts", "type": "util", "file": "src/tools/vaultWalker.ts", "position": { "x": 335, "y": 472 }, "description": "collectMarkdown(): recorre la boveda revalidando cada entrada con el guardian; symlink-safe, ignora ocultos." },
+    { "id": "helpers", "label": "helpers.ts", "type": "util", "file": "src/tools/helpers.ts", "position": { "x": 500, "y": 360 }, "description": "textResult / toErrorResult: construyen el CallToolResult. Los PathSecurityError se exponen con su codigo." },
+    { "id": "guard", "label": "PathGuard", "type": "security", "file": "src/security/pathGuard.ts", "position": { "x": 500, "y": 640 }, "description": "resolveSafePath (lectura) y resolveSafeWritePath (escritura, admite destino inexistente). Veta absolutas, dos-puntos, ocultos y traversal; resuelve realpath, confina symlinks y aplica allowlist .md. LANZA PathSecurityError. Unico portero: nada toca disco sin el." },
+    { "id": "fs", "label": "Filesystem (boveda)", "type": "external", "file": null, "position": { "x": 500, "y": 752 }, "description": "Sistema de archivos: la boveda local de Obsidian. Unico limite de confianza. Lectura y (si enableWrite) escritura." },
+    { "id": "trash", "label": ".trash (papelera)", "type": "external", "file": null, "position": { "x": 730, "y": 700 }, "description": "Carpeta oculta .trash dentro de la boveda. delete_note mueve aqui las notas (reversible). No se enumera." }
+  ],
+  "edges": [
+    { "from": "client", "to": "transport", "label": "JSON-RPC / stdio", "kind": "runtime" },
+    { "from": "transport", "to": "sdk", "label": "dispatch", "kind": "runtime" },
+    { "from": "index", "to": "env", "label": "loadConfig()", "kind": "build" },
+    { "from": "index", "to": "guard", "label": "new PathGuard()", "kind": "build" },
+    { "from": "index", "to": "sdk", "label": "new McpServer()", "kind": "build" },
+    { "from": "index", "to": "transport", "label": "connect()", "kind": "build" },
+    { "from": "index", "to": "readNote", "label": "register", "kind": "build" },
+    { "from": "index", "to": "listNotes", "label": "register", "kind": "build" },
+    { "from": "index", "to": "searchVault", "label": "register", "kind": "build" },
+    { "from": "index", "to": "createNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "updateNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "appendNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "deleteNote", "label": "register (si write)", "kind": "build" },
+    { "from": "sdk", "to": "readNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "listNotes", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "searchVault", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "createNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "updateNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "appendNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "deleteNote", "label": "call", "kind": "runtime" },
+    { "from": "readNote", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "readNote", "to": "fs", "label": "readFileSync", "kind": "runtime" },
+    { "from": "readNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "listNotes", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "listNotes", "to": "walker", "label": "collectMarkdown", "kind": "runtime" },
+    { "from": "listNotes", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "searchVault", "to": "walker", "label": "collectMarkdown", "kind": "runtime" },
+    { "from": "searchVault", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "searchVault", "to": "fs", "label": "readFileSync", "kind": "runtime" },
+    { "from": "searchVault", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "createNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "createNote", "to": "fs", "label": "writeFileSync (wx)", "kind": "runtime" },
+    { "from": "createNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "updateNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "updateNote", "to": "fs", "label": "atomicWrite", "kind": "runtime" },
+    { "from": "updateNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "appendNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "appendNote", "to": "fs", "label": "appendFileSync", "kind": "runtime" },
+    { "from": "appendNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "deleteNote", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "deleteNote", "to": "trash", "label": "moveToTrash", "kind": "runtime" },
+    { "from": "deleteNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "walker", "to": "guard", "label": "resolveSafePath (por entrada)", "kind": "runtime" },
+    { "from": "walker", "to": "fs", "label": "readdir / stat", "kind": "runtime" },
+    { "from": "guard", "to": "fs", "label": "realpathSync", "kind": "runtime" },
+    { "from": "trash", "to": "fs", "label": "rename dentro de la boveda", "kind": "runtime" }
+  ],
+  "flows": [
+    {
+      "id": "bootstrap", "name": "Arranque del servidor",
+      "description": "Inicializacion fail-fast. Las herramientas de escritura solo se registran si OBSIDIAN_ENABLE_WRITE=true.",
+      "nodes": ["index", "env", "guard", "sdk", "readNote", "listNotes", "searchVault", "createNote", "updateNote", "appendNote", "deleteNote", "transport"],
+      "edges": ["index>env", "index>guard", "index>sdk", "index>readNote", "index>listNotes", "index>searchVault", "index>createNote", "index>updateNote", "index>appendNote", "index>deleteNote", "index>transport"],
+      "steps": [
+        { "node": "index", "action": "main() arranca el proceso" },
+        { "node": "env", "action": "loadConfig() valida OBSIDIAN_VAULT_PATH y lee OBSIDIAN_ENABLE_WRITE" },
+        { "node": "guard", "action": "new PathGuard(vaultRoot) fija el limite de confianza" },
+        { "node": "sdk", "action": "new McpServer() crea el servidor" },
+        { "node": "readNote", "action": "registra las 3 herramientas de lectura" },
+        { "node": "createNote", "action": "si enableWrite: registra las 4 herramientas de escritura" },
+        { "node": "transport", "action": "server.connect(StdioServerTransport) — listo" }
+      ]
+    },
+    {
+      "id": "read", "name": "read_note (lectura)",
+      "description": "Lectura del contenido de una nota concreta.",
+      "nodes": ["client", "transport", "sdk", "readNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>readNote", "readNote>guard", "guard>fs", "readNote>fs", "readNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita read_note con { path }" },
+        { "node": "sdk", "action": "Despacha al handler de read_note" },
+        { "node": "guard", "action": "resolveSafePath(path) — realpath + contencion + allowlist .md" },
+        { "node": "fs", "action": "readFileSync(rutaSegura) si isFile()" },
+        { "node": "helpers", "action": "textResult(contenido)" }
+      ]
+    },
+    {
+      "id": "list", "name": "list_notes (enumeracion)",
+      "description": "Listado recursivo de notas .md, opcionalmente por subcarpeta.",
+      "nodes": ["client", "transport", "sdk", "listNotes", "walker", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>listNotes", "listNotes>guard", "listNotes>walker", "walker>guard", "walker>fs", "guard>fs", "listNotes>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita list_notes con { folder? }" },
+        { "node": "sdk", "action": "Despacha al handler de list_notes" },
+        { "node": "walker", "action": "collectMarkdown() recorre la boveda" },
+        { "node": "guard", "action": "resolveSafePath() por cada entrada (symlink-safe)" },
+        { "node": "fs", "action": "readdir / stat de directorios permitidos" },
+        { "node": "helpers", "action": "textResult(listado ordenado)" }
+      ]
+    },
+    {
+      "id": "search", "name": "search_vault (busqueda)",
+      "description": "Busqueda de texto case-insensitive en todas las notas.",
+      "nodes": ["client", "transport", "sdk", "searchVault", "walker", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>searchVault", "searchVault>walker", "walker>guard", "walker>fs", "searchVault>guard", "searchVault>fs", "guard>fs", "searchVault>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita search_vault con { query, maxResults? }" },
+        { "node": "sdk", "action": "Despacha al handler de search_vault" },
+        { "node": "walker", "action": "Enumera notas .md revalidadas" },
+        { "node": "guard", "action": "resolveSafePath() antes de leer cada nota" },
+        { "node": "fs", "action": "readFileSync por nota (omite grandes), escanea lineas" },
+        { "node": "helpers", "action": "textResult(coincidencias nota:linea)" }
+      ]
+    },
+    {
+      "id": "create", "name": "create_note (escritura)",
+      "description": "Crea una nota nueva. Requiere OBSIDIAN_ENABLE_WRITE. Falla si ya existe.",
+      "nodes": ["client", "transport", "sdk", "createNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>createNote", "createNote>guard", "guard>fs", "createNote>fs", "createNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita create_note con { path, content }" },
+        { "node": "sdk", "action": "Despacha al handler de create_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path) — valida destino aunque no exista" },
+        { "node": "fs", "action": "mkdir parent + writeFileSync(flag 'wx') — falla si ya existe" },
+        { "node": "helpers", "action": "textResult('Nota creada')" }
+      ]
+    },
+    {
+      "id": "update", "name": "update_note (escritura)",
+      "description": "Sobrescribe una nota existente con escritura atomica.",
+      "nodes": ["client", "transport", "sdk", "updateNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>updateNote", "updateNote>guard", "guard>fs", "updateNote>fs", "updateNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita update_note con { path, content }" },
+        { "node": "sdk", "action": "Despacha al handler de update_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path); debe existir y ser fichero" },
+        { "node": "fs", "action": "atomicWrite: fichero temporal + rename (reemplazo atomico)" },
+        { "node": "helpers", "action": "textResult('Nota actualizada')" }
+      ]
+    },
+    {
+      "id": "append", "name": "append_note (escritura)",
+      "description": "Anade texto al final de una nota existente.",
+      "nodes": ["client", "transport", "sdk", "appendNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>appendNote", "appendNote>guard", "guard>fs", "appendNote>fs", "appendNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita append_note con { path, text }" },
+        { "node": "sdk", "action": "Despacha al handler de append_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path); debe existir y ser fichero" },
+        { "node": "fs", "action": "appendFileSync(text) al final, sin tocar lo previo" },
+        { "node": "helpers", "action": "textResult('Texto anadido')" }
+      ]
+    },
+    {
+      "id": "delete", "name": "delete_note (a papelera)",
+      "description": "Mueve una nota a .trash (reversible). Requiere OBSIDIAN_ENABLE_WRITE.",
+      "nodes": ["client", "transport", "sdk", "deleteNote", "guard", "trash", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>deleteNote", "deleteNote>guard", "guard>fs", "deleteNote>trash", "trash>fs", "deleteNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita delete_note con { path }" },
+        { "node": "sdk", "action": "Despacha al handler de delete_note" },
+        { "node": "guard", "action": "resolveSafePath(path) — exige que exista y sea .md" },
+        { "node": "trash", "action": "moveToTrash: rename a .trash/<nombre> (evita colisiones)" },
+        { "node": "helpers", "action": "textResult('Nota movida a la papelera')" }
+      ]
+    },
+    {
+      "id": "denial", "name": "Denegacion Zero Trust",
+      "description": "Un input hostil (traversal, oculto, absoluto, symlink que escapa...) es bloqueado por el guardian, en lectura y en escritura.",
+      "nodes": ["client", "transport", "sdk", "createNote", "guard", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>createNote", "createNote>guard", "createNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita p. ej. create_note con path malicioso (../../evil.md)" },
+        { "node": "sdk", "action": "Despacha al handler" },
+        { "node": "guard", "action": "resolveSafeWritePath() LANZA PathSecurityError (PATH_ESCAPE/HIDDEN_SEGMENT/...)" },
+        { "node": "helpers", "action": "toErrorResult() -> { isError: true, 'Acceso denegado [CODIGO]' }" }
+      ]
+    }
+  ]
+};
+
+const TYPE_COLORS = {
+  external: "--external", transport: "--transport", sdk: "--sdk",
+  entrypoint: "--entrypoint", config: "--config", tool: "--tool",
+  write: "--write", util: "--util", security: "--security"
+};
+const TYPE_LABEL = {
+  external: "Externo", transport: "Transporte", sdk: "SDK",
+  entrypoint: "Entrypoint", config: "Config", tool: "Lectura",
+  write: "Escritura", util: "Utilidad", security: "Seguridad"
+};
+
+const NW = 160, NH = 52, HW = NW/2, HH = NH/2;
+const nodeById = Object.fromEntries(DATA.nodes.map(n => [n.id, n]));
+const edgeKey = e => e.from + ">" + e.to;
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+
+function border(node, tx, ty) {
+  const dx = tx - node.position.x, dy = ty - node.position.y;
+  if (dx === 0 && dy === 0) return { x: node.position.x, y: node.position.y };
+  const sx = dx !== 0 ? HW / Math.abs(dx) : Infinity;
+  const sy = dy !== 0 ? HH / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  return { x: node.position.x + dx * s, y: node.position.y + dy * s };
+}
+
+const gEdges = document.getElementById("gEdges");
+const gLabels = document.getElementById("gLabels");
+const gNodes = document.getElementById("gNodes");
+const svg = document.getElementById("svg");
+
+const edgeEls = {};
+for (const e of DATA.edges) {
+  const a = nodeById[e.from], b = nodeById[e.to];
+  const p1 = border(a, b.position.x, b.position.y);
+  const p2 = border(b, a.position.x, a.position.y);
+  const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+  const path = el("path", {
+    d: `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`,
+    class: "edge " + (e.kind || "runtime"),
+    "marker-end": "url(#arrow)"
+  });
+  path.dataset.key = edgeKey(e);
+  gEdges.appendChild(path);
+  const lbl = el("text", { x: mx, y: my - 3, "text-anchor": "middle", class: "edgelabel" });
+  lbl.textContent = e.label || "";
+  lbl.dataset.key = edgeKey(e);
+  gLabels.appendChild(lbl);
+  edgeEls[edgeKey(e)] = { path, lbl };
+}
+
+const nodeEls = {};
+for (const n of DATA.nodes) {
+  const cvar = TYPE_COLORS[n.type] || "--accent";
+  const g = el("g", { class: "node", transform: `translate(${n.position.x - HW}, ${n.position.y - HH})`, style: `--n: var(${cvar})` });
+  g.appendChild(el("rect", { x: 0, y: 0, width: NW, height: NH, rx: 11 }));
+  g.appendChild(el("rect", { class: "accentbar", x: 0, y: 0, width: 5, height: NH, rx: 2.5 }));
+  const kind = el("text", { class: "kind", x: 16, y: 20 }); kind.textContent = TYPE_LABEL[n.type] || n.type;
+  const title = el("text", { class: "title", x: 16, y: 37 }); title.textContent = n.label;
+  g.appendChild(kind); g.appendChild(title);
+  g.dataset.id = n.id;
+  gNodes.appendChild(g);
+  nodeEls[n.id] = g;
+
+  g.addEventListener("mouseenter", ev => showTip(ev, n));
+  g.addEventListener("mousemove", moveTip);
+  g.addEventListener("mouseleave", hideTip);
+}
+
+const tip = document.getElementById("tooltip");
+function showTip(ev, n) {
+  tip.innerHTML = `<div class="tt-title">${n.label}</div>` +
+    (n.file ? `<div class="tt-file">${n.file}</div>` : `<div class="tt-file">${TYPE_LABEL[n.type] || n.type}</div>`) +
+    `<div class="tt-desc">${n.description || ""}</div>`;
+  tip.classList.add("show"); moveTip(ev);
+}
+function moveTip(ev) {
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if (x + w > innerWidth) x = ev.clientX - w - pad;
+  if (y + h > innerHeight) y = ev.clientY - h - pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.classList.remove("show"); }
+
+const legend = document.getElementById("legend");
+for (const t in TYPE_LABEL) {
+  const s = document.createElement("span");
+  s.innerHTML = `<i class="dot" style="background:var(${TYPE_COLORS[t]})"></i>${TYPE_LABEL[t]}`;
+  legend.appendChild(s);
+}
+
+const flowsBox = document.getElementById("flows");
+const resetBtn = document.getElementById("reset");
+let active = null;
+
+DATA.flows.forEach(f => {
+  const card = document.createElement("div");
+  card.className = "flow"; card.dataset.id = f.id;
+  const steps = f.steps.map((s, i) =>
+    `<div class="step"><div class="num">${i + 1}</div><div class="txt"><b>${nodeById[s.node].label}</b> <span>— ${s.action}</span></div></div>`
+  ).join("");
+  card.innerHTML =
+    `<div class="name"><span class="swatch"></span>${f.name}</div>` +
+    `<div class="desc">${f.description}</div>` +
+    `<div class="steps">${steps}</div>`;
+  card.addEventListener("click", () => toggle(f, card));
+  flowsBox.appendChild(card);
+});
+
+function clearHi() {
+  svg.classList.remove("has-active");
+  Object.values(nodeEls).forEach(g => g.classList.remove("hi"));
+  Object.values(edgeEls).forEach(o => { o.path.classList.remove("hi"); o.path.setAttribute("marker-end", "url(#arrow)"); o.lbl.classList.remove("hi"); });
+  document.querySelectorAll(".flow.active").forEach(c => c.classList.remove("active"));
+  resetBtn.hidden = true; active = null;
+}
+
+function toggle(f, card) {
+  if (active === f.id) { clearHi(); return; }
+  clearHi();
+  active = f.id; card.classList.add("active");
+  svg.classList.add("has-active"); resetBtn.hidden = false;
+  f.nodes.forEach(id => nodeEls[id] && nodeEls[id].classList.add("hi"));
+  f.edges.forEach(k => {
+    const o = edgeEls[k];
+    if (o) { o.path.classList.add("hi"); o.path.setAttribute("marker-end", "url(#arrowhi)"); o.lbl.classList.add("hi"); }
+  });
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+resetBtn.addEventListener("click", clearHi);
+</script>
+</body>
+</html>

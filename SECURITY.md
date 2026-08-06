@@ -4,7 +4,9 @@
 
 Este servidor MCP opera bajo **Confianza Cero (Zero Trust)**: toda ruta recibida se
 considera hostil hasta demostrarse segura. El unico limite de confianza es la variable
-`OBSIDIAN_VAULT_PATH`. Todas las herramientas son de **solo lectura**.
+`OBSIDIAN_VAULT_PATH`. Es **solo lectura por defecto**; la escritura (`create_note`,
+`update_note`, `append_note`, `delete_note`) es **opt-in** via `OBSIDIAN_ENABLE_WRITE=true`
+y pasa por el mismo guardian (`resolveSafeWritePath`), con borrado reversible a `.trash`.
 
 Garantias del sandbox (`src/security/pathGuard.ts`):
 

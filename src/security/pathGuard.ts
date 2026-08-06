@@ -175,4 +175,97 @@ export class PathGuard {
 
     return real;
   }
+
+  /**
+   * Resuelve una ruta de ESCRITURA relativa a la boveda. A diferencia de
+   * resolveSafePath, el destino puede NO existir todavia (para crear notas).
+   * Valida el ancestro existente mas profundo con realpath (symlink-safe) y
+   * confina tanto los directorios que se crearian como el destino final.
+   * LANZA PathSecurityError ante cualquier duda.
+   */
+  resolveSafeWritePath(relativeInput: string): string {
+    // 1. Higiene basica (identica a resolveSafePath).
+    if (typeof relativeInput !== "string" || relativeInput.trim() === "") {
+      throw new PathSecurityError("EMPTY_INPUT", "La ruta esta vacia.");
+    }
+    if (relativeInput.includes("\0")) {
+      throw new PathSecurityError("NULL_BYTE", "La ruta contiene un byte nulo.");
+    }
+    if (relativeInput.includes(":")) {
+      throw new PathSecurityError(
+        "INVALID_CHARACTER",
+        "La ruta contiene ':' (unidad o flujo de datos alternativo no permitido).",
+      );
+    }
+    const normalized = relativeInput.replace(/\\/g, "/");
+    if (path.isAbsolute(normalized) || normalized.startsWith("//")) {
+      throw new PathSecurityError(
+        "ABSOLUTE_INPUT",
+        "Solo se permiten rutas relativas a la boveda.",
+      );
+    }
+
+    // 2. Resolver + contencion lexica + segmentos ocultos + extension.
+    const resolved = path.resolve(this.vaultRoot, normalized);
+    if (!this.isContained(resolved)) {
+      throw new PathSecurityError("PATH_ESCAPE", "La ruta escapa de la boveda.");
+    }
+    this.assertNoHiddenSegments(path.relative(this.vaultRoot, resolved), "");
+    const ext = path.extname(resolved).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      throw new PathSecurityError(
+        "INVALID_EXTENSION",
+        `Extension no permitida: ${ext || "(ninguna)"}`,
+      );
+    }
+
+    // 3. Ancestro existente mas profundo -> realpath -> contencion (anti-symlink).
+    let cur = resolved;
+    while (cur !== this.vaultRoot && !fs.existsSync(cur)) {
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+    let realAncestor: string;
+    try {
+      realAncestor = fs.realpathSync(cur);
+    } catch {
+      throw new PathSecurityError("NOT_FOUND", "El directorio contenedor no existe.");
+    }
+    if (!this.isContained(realAncestor)) {
+      throw new PathSecurityError(
+        "SYMLINK_ESCAPE",
+        "Un enlace simbolico apunta fuera de la boveda.",
+      );
+    }
+    this.assertNoHiddenSegments(
+      path.relative(this.vaultRoot, realAncestor),
+      " (ancestro real)",
+    );
+
+    // 4. Reconstruir el destino sobre el ancestro real y re-verificar contencion.
+    const tail = path.relative(cur, resolved);
+    const finalPath = tail ? path.join(realAncestor, tail) : realAncestor;
+    if (!this.isContained(finalPath)) {
+      throw new PathSecurityError("PATH_ESCAPE", "La ruta escapa de la boveda.");
+    }
+
+    // 5. Si el destino YA existe, confinar su realpath (symlink existente).
+    if (fs.existsSync(finalPath)) {
+      const realFinal = fs.realpathSync(finalPath);
+      if (!this.isContained(realFinal)) {
+        throw new PathSecurityError(
+          "SYMLINK_ESCAPE",
+          "El destino es un enlace que escapa de la boveda.",
+        );
+      }
+      return realFinal;
+    }
+    return finalPath;
+  }
+
+  /** Raiz de la papelera interna (.trash) donde delete_note mueve las notas. */
+  get trashRoot(): string {
+    return path.join(this.vaultRoot, ".trash");
+  }
 }

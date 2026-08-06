@@ -6,6 +6,7 @@ import { PathGuard } from "./security/pathGuard.js";
 import { registerReadNote } from "./tools/readNote.js";
 import { registerListNotes } from "./tools/listNotes.js";
 import { registerSearchVault } from "./tools/searchVault.js";
+import { registerWriteTools } from "./tools/writeTools.js";
 
 async function main(): Promise<void> {
   // Fail-fast: si la boveda no es valida, el proceso no arranca.
@@ -22,11 +23,17 @@ async function main(): Promise<void> {
   registerListNotes(server, guard);
   registerSearchVault(server, guard);
 
+  // Escritura: opt-in. Solo se registra si OBSIDIAN_ENABLE_WRITE esta activo.
+  if (config.enableWrite) {
+    registerWriteTools(server, guard);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   // IMPORTANTE: stdout es el canal del protocolo MCP. Todo log va a stderr.
-  console.error(`[obsidian-mcp] Servidor listo (solo lectura). Boveda: ${guard.root}`);
+  const mode = config.enableWrite ? "lectura/escritura" : "solo lectura";
+  console.error(`[obsidian-mcp] Servidor listo (${mode}). Boveda: ${guard.root}`);
 }
 
 main().catch((err: unknown) => {

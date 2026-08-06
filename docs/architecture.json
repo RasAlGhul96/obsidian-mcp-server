@@ -1,0 +1,202 @@
+{
+  "project": "obsidian-mcp-server",
+  "description": "Servidor MCP para una boveda local de Obsidian. Lectura siempre; escritura opt-in (OBSIDIAN_ENABLE_WRITE). Sandbox Zero Trust.",
+  "version": "0.1.0",
+  "nodes": [
+    { "id": "client", "label": "Cliente MCP", "type": "external", "file": null, "position": { "x": 500, "y": 48 }, "description": "Claude Desktop u otro cliente MCP. Envia peticiones JSON-RPC 2.0 a traves de stdio." },
+    { "id": "transport", "label": "StdioServerTransport", "type": "transport", "file": "src/index.ts", "position": { "x": 350, "y": 142 }, "description": "Transporte stdio: stdin recibe peticiones, stdout emite respuestas. Los logs van a stderr para no corromper el canal del protocolo." },
+    { "id": "sdk", "label": "McpServer (SDK)", "type": "sdk", "file": "src/index.ts", "position": { "x": 650, "y": 142 }, "description": "@modelcontextprotocol/sdk. Registra las herramientas y despacha las llamadas entrantes al handler correspondiente." },
+    { "id": "index", "label": "index.ts", "type": "entrypoint", "file": "src/index.ts", "position": { "x": 500, "y": 240 }, "description": "Entrypoint main(): carga config (fail-fast), construye el guardian, registra las 3 herramientas de lectura y (si enableWrite) las 4 de escritura, y conecta el transporte." },
+    { "id": "env", "label": "config/env.ts", "type": "config", "file": "src/config/env.ts", "position": { "x": 165, "y": 240 }, "description": "loadConfig(): valida OBSIDIAN_VAULT_PATH (absoluta, existe, es dir) con realpath. Lee OBSIDIAN_ENABLE_WRITE (opt-in). Fail-fast." },
+
+    { "id": "readNote", "label": "read_note", "type": "tool", "file": "src/tools/readNote.ts", "position": { "x": 165, "y": 360 }, "description": "Lee el contenido de una nota .md. Valida con el guardian y comprueba isFile()." },
+    { "id": "listNotes", "label": "list_notes", "type": "tool", "file": "src/tools/listNotes.ts", "position": { "x": 165, "y": 452 }, "description": "Enumera notas .md recursivamente, opcionalmente por subcarpeta." },
+    { "id": "searchVault", "label": "search_vault", "type": "tool", "file": "src/tools/searchVault.ts", "position": { "x": 165, "y": 544 }, "description": "Busca texto (case-insensitive) en las notas. Omite ficheros > 5 MB (defensa OOM)." },
+
+    { "id": "createNote", "label": "create_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 360 }, "description": "Crea una nota .md nueva (flag wx: falla si ya existe, nunca sobrescribe). Solo si enableWrite." },
+    { "id": "updateNote", "label": "update_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 452 }, "description": "Sobrescribe una nota existente con escritura atomica (temp + rename). Falla si no existe." },
+    { "id": "appendNote", "label": "append_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 544 }, "description": "Anade texto al final de una nota existente sin tocar lo previo. Falla si no existe." },
+    { "id": "deleteNote", "label": "delete_note", "type": "write", "file": "src/tools/writeTools.ts", "position": { "x": 835, "y": 636 }, "description": "Mueve la nota a la papelera .trash (reversible, no es borrado permanente)." },
+
+    { "id": "walker", "label": "vaultWalker.ts", "type": "util", "file": "src/tools/vaultWalker.ts", "position": { "x": 335, "y": 472 }, "description": "collectMarkdown(): recorre la boveda revalidando cada entrada con el guardian; symlink-safe, ignora ocultos." },
+    { "id": "helpers", "label": "helpers.ts", "type": "util", "file": "src/tools/helpers.ts", "position": { "x": 500, "y": 360 }, "description": "textResult / toErrorResult: construyen el CallToolResult. Los PathSecurityError se exponen con su codigo." },
+    { "id": "guard", "label": "PathGuard", "type": "security", "file": "src/security/pathGuard.ts", "position": { "x": 500, "y": 640 }, "description": "resolveSafePath (lectura) y resolveSafeWritePath (escritura, admite destino inexistente). Veta absolutas/':'/ocultos/traversal, resuelve realpath, confina symlinks y aplica allowlist .md. LANZA PathSecurityError. Unico portero: nada toca disco sin el." },
+    { "id": "fs", "label": "Filesystem (boveda)", "type": "external", "file": null, "position": { "x": 500, "y": 752 }, "description": "Sistema de archivos: la boveda local de Obsidian. Unico limite de confianza. Lectura y (si enableWrite) escritura." },
+    { "id": "trash", "label": ".trash (papelera)", "type": "external", "file": null, "position": { "x": 730, "y": 700 }, "description": "Carpeta oculta .trash dentro de la boveda. delete_note mueve aqui las notas (reversible). No se enumera." }
+  ],
+  "edges": [
+    { "from": "client", "to": "transport", "label": "JSON-RPC / stdio", "kind": "runtime" },
+    { "from": "transport", "to": "sdk", "label": "dispatch", "kind": "runtime" },
+
+    { "from": "index", "to": "env", "label": "loadConfig()", "kind": "build" },
+    { "from": "index", "to": "guard", "label": "new PathGuard()", "kind": "build" },
+    { "from": "index", "to": "sdk", "label": "new McpServer()", "kind": "build" },
+    { "from": "index", "to": "transport", "label": "connect()", "kind": "build" },
+    { "from": "index", "to": "readNote", "label": "register", "kind": "build" },
+    { "from": "index", "to": "listNotes", "label": "register", "kind": "build" },
+    { "from": "index", "to": "searchVault", "label": "register", "kind": "build" },
+    { "from": "index", "to": "createNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "updateNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "appendNote", "label": "register (si write)", "kind": "build" },
+    { "from": "index", "to": "deleteNote", "label": "register (si write)", "kind": "build" },
+
+    { "from": "sdk", "to": "readNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "listNotes", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "searchVault", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "createNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "updateNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "appendNote", "label": "call", "kind": "runtime" },
+    { "from": "sdk", "to": "deleteNote", "label": "call", "kind": "runtime" },
+
+    { "from": "readNote", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "readNote", "to": "fs", "label": "readFileSync", "kind": "runtime" },
+    { "from": "readNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "listNotes", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "listNotes", "to": "walker", "label": "collectMarkdown", "kind": "runtime" },
+    { "from": "listNotes", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "searchVault", "to": "walker", "label": "collectMarkdown", "kind": "runtime" },
+    { "from": "searchVault", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "searchVault", "to": "fs", "label": "readFileSync", "kind": "runtime" },
+    { "from": "searchVault", "to": "helpers", "label": "result", "kind": "runtime" },
+
+    { "from": "createNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "createNote", "to": "fs", "label": "writeFileSync (wx)", "kind": "runtime" },
+    { "from": "createNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "updateNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "updateNote", "to": "fs", "label": "atomicWrite", "kind": "runtime" },
+    { "from": "updateNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "appendNote", "to": "guard", "label": "resolveSafeWritePath", "kind": "runtime" },
+    { "from": "appendNote", "to": "fs", "label": "appendFileSync", "kind": "runtime" },
+    { "from": "appendNote", "to": "helpers", "label": "result", "kind": "runtime" },
+    { "from": "deleteNote", "to": "guard", "label": "resolveSafePath", "kind": "runtime" },
+    { "from": "deleteNote", "to": "trash", "label": "moveToTrash", "kind": "runtime" },
+    { "from": "deleteNote", "to": "helpers", "label": "result", "kind": "runtime" },
+
+    { "from": "walker", "to": "guard", "label": "resolveSafePath (por entrada)", "kind": "runtime" },
+    { "from": "walker", "to": "fs", "label": "readdir / stat", "kind": "runtime" },
+    { "from": "guard", "to": "fs", "label": "realpathSync", "kind": "runtime" },
+    { "from": "trash", "to": "fs", "label": "rename dentro de la boveda", "kind": "runtime" }
+  ],
+  "flows": [
+    {
+      "id": "bootstrap", "name": "Arranque del servidor",
+      "description": "Inicializacion fail-fast. Las herramientas de escritura solo se registran si OBSIDIAN_ENABLE_WRITE=true.",
+      "nodes": ["index", "env", "guard", "sdk", "readNote", "listNotes", "searchVault", "createNote", "updateNote", "appendNote", "deleteNote", "transport"],
+      "edges": ["index>env", "index>guard", "index>sdk", "index>readNote", "index>listNotes", "index>searchVault", "index>createNote", "index>updateNote", "index>appendNote", "index>deleteNote", "index>transport"],
+      "steps": [
+        { "node": "index", "action": "main() arranca el proceso" },
+        { "node": "env", "action": "loadConfig() valida OBSIDIAN_VAULT_PATH y lee OBSIDIAN_ENABLE_WRITE" },
+        { "node": "guard", "action": "new PathGuard(vaultRoot) fija el limite de confianza" },
+        { "node": "sdk", "action": "new McpServer() crea el servidor" },
+        { "node": "readNote", "action": "registra las 3 herramientas de lectura" },
+        { "node": "createNote", "action": "si enableWrite: registra las 4 herramientas de escritura" },
+        { "node": "transport", "action": "server.connect(StdioServerTransport) — listo" }
+      ]
+    },
+    {
+      "id": "read", "name": "read_note (lectura)",
+      "description": "Lectura del contenido de una nota concreta.",
+      "nodes": ["client", "transport", "sdk", "readNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>readNote", "readNote>guard", "guard>fs", "readNote>fs", "readNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita read_note con { path }" },
+        { "node": "sdk", "action": "Despacha al handler de read_note" },
+        { "node": "guard", "action": "resolveSafePath(path) — realpath + contencion + allowlist .md" },
+        { "node": "fs", "action": "readFileSync(rutaSegura) si isFile()" },
+        { "node": "helpers", "action": "textResult(contenido)" }
+      ]
+    },
+    {
+      "id": "list", "name": "list_notes (enumeracion)",
+      "description": "Listado recursivo de notas .md, opcionalmente por subcarpeta.",
+      "nodes": ["client", "transport", "sdk", "listNotes", "walker", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>listNotes", "listNotes>guard", "listNotes>walker", "walker>guard", "walker>fs", "guard>fs", "listNotes>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita list_notes con { folder? }" },
+        { "node": "sdk", "action": "Despacha al handler de list_notes" },
+        { "node": "walker", "action": "collectMarkdown() recorre la boveda" },
+        { "node": "guard", "action": "resolveSafePath() por cada entrada (symlink-safe)" },
+        { "node": "fs", "action": "readdir / stat de directorios permitidos" },
+        { "node": "helpers", "action": "textResult(listado ordenado)" }
+      ]
+    },
+    {
+      "id": "search", "name": "search_vault (busqueda)",
+      "description": "Busqueda de texto case-insensitive en todas las notas.",
+      "nodes": ["client", "transport", "sdk", "searchVault", "walker", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>searchVault", "searchVault>walker", "walker>guard", "walker>fs", "searchVault>guard", "searchVault>fs", "guard>fs", "searchVault>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita search_vault con { query, maxResults? }" },
+        { "node": "sdk", "action": "Despacha al handler de search_vault" },
+        { "node": "walker", "action": "Enumera notas .md revalidadas" },
+        { "node": "guard", "action": "resolveSafePath() antes de leer cada nota" },
+        { "node": "fs", "action": "readFileSync por nota (omite > 5 MB), escanea lineas" },
+        { "node": "helpers", "action": "textResult(coincidencias nota:linea)" }
+      ]
+    },
+    {
+      "id": "create", "name": "create_note (escritura)",
+      "description": "Crea una nota nueva. Requiere OBSIDIAN_ENABLE_WRITE. Falla si ya existe.",
+      "nodes": ["client", "transport", "sdk", "createNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>createNote", "createNote>guard", "guard>fs", "createNote>fs", "createNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita create_note con { path, content }" },
+        { "node": "sdk", "action": "Despacha al handler de create_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path) — valida destino (aunque no exista)" },
+        { "node": "fs", "action": "mkdir parent + writeFileSync(flag 'wx') — falla si ya existe" },
+        { "node": "helpers", "action": "textResult('Nota creada')" }
+      ]
+    },
+    {
+      "id": "update", "name": "update_note (escritura)",
+      "description": "Sobrescribe una nota existente con escritura atomica.",
+      "nodes": ["client", "transport", "sdk", "updateNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>updateNote", "updateNote>guard", "guard>fs", "updateNote>fs", "updateNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita update_note con { path, content }" },
+        { "node": "sdk", "action": "Despacha al handler de update_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path); debe existir y ser fichero" },
+        { "node": "fs", "action": "atomicWrite: fichero temporal + rename (reemplazo atomico)" },
+        { "node": "helpers", "action": "textResult('Nota actualizada')" }
+      ]
+    },
+    {
+      "id": "append", "name": "append_note (escritura)",
+      "description": "Anade texto al final de una nota existente.",
+      "nodes": ["client", "transport", "sdk", "appendNote", "guard", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>appendNote", "appendNote>guard", "guard>fs", "appendNote>fs", "appendNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita append_note con { path, text }" },
+        { "node": "sdk", "action": "Despacha al handler de append_note" },
+        { "node": "guard", "action": "resolveSafeWritePath(path); debe existir y ser fichero" },
+        { "node": "fs", "action": "appendFileSync(text) al final, sin tocar lo previo" },
+        { "node": "helpers", "action": "textResult('Texto anadido')" }
+      ]
+    },
+    {
+      "id": "delete", "name": "delete_note (a papelera)",
+      "description": "Mueve una nota a .trash (reversible). Requiere OBSIDIAN_ENABLE_WRITE.",
+      "nodes": ["client", "transport", "sdk", "deleteNote", "guard", "trash", "fs", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>deleteNote", "deleteNote>guard", "guard>fs", "deleteNote>trash", "trash>fs", "deleteNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita delete_note con { path }" },
+        { "node": "sdk", "action": "Despacha al handler de delete_note" },
+        { "node": "guard", "action": "resolveSafePath(path) — exige que exista y sea .md" },
+        { "node": "trash", "action": "moveToTrash: rename a .trash/<nombre> (evita colisiones)" },
+        { "node": "helpers", "action": "textResult('Nota movida a la papelera')" }
+      ]
+    },
+    {
+      "id": "denial", "name": "Denegacion Zero Trust",
+      "description": "Un input hostil (traversal, oculto, absoluto, symlink que escapa...) es bloqueado por el guardian, tanto en lectura como en escritura.",
+      "nodes": ["client", "transport", "sdk", "createNote", "guard", "helpers"],
+      "edges": ["client>transport", "transport>sdk", "sdk>createNote", "createNote>guard", "createNote>helpers"],
+      "steps": [
+        { "node": "client", "action": "Solicita p. ej. create_note con path malicioso (../../evil.md)" },
+        { "node": "sdk", "action": "Despacha al handler" },
+        { "node": "guard", "action": "resolveSafeWritePath() LANZA PathSecurityError (PATH_ESCAPE/HIDDEN_SEGMENT/...)" },
+        { "node": "helpers", "action": "toErrorResult() -> { isError: true, 'Acceso denegado [CODIGO]' }" }
+      ]
+    }
+  ]
+}
